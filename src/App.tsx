@@ -100,6 +100,7 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ULPINResponse | null>(null);
   const [copied, setCopied] = useState(false);
+  const [focusTrigger, setFocusTrigger] = useState(0);
 
   // Search state
   const [searchLoading, setSearchLoading] = useState(false);
@@ -123,6 +124,8 @@ function App() {
     });
     setResult(response);
     setLoading(false);
+    setSelectedFloor(floorLevel - 1);
+    setFocusTrigger((t) => t + 1);
   }, [state, district, surveyPlotNo, floorLevel, flatUnit]);
 
   const handleCopy = useCallback(() => {
@@ -159,6 +162,7 @@ function App() {
               hoveredFloor={hoveredFloor}
               onSelectFloor={handleFloorSelect}
               onHoverFloor={setHoveredFloor}
+              focusTrigger={focusTrigger}
             />
           </Suspense>
 

@@ -8,6 +8,38 @@ export interface ULPINRequest {
   flatUnit: string;
 }
 
+export interface BuildingFlat {
+  unit: string;
+  flat_number: number;
+  area_sqft: number;
+  owner: string;
+  tax_status: 'PAID' | 'PENDING';
+  encumbrance: 'CLEAR' | 'ENCUMBERED';
+  registered: boolean;
+}
+
+export interface BuildingFloor {
+  floor_number: number;
+  elevation_meters: number;
+  flats: BuildingFlat[];
+}
+
+export interface BuildingData {
+  building_id: string;
+  building_name: string;
+  total_floors: number;
+  flats_per_floor: number;
+  spatial_bounds: {
+    min_lat: number;
+    max_lat: number;
+    min_lng: number;
+    max_lng: number;
+    base_altitude_m: number;
+    floor_height_m: number;
+  };
+  floors: BuildingFloor[];
+}
+
 export interface ULPINResponse {
   ulpin: string;
   source: 'api' | 'mock';
@@ -23,8 +55,9 @@ export interface ULPINResponse {
   };
 }
 
-const API_URL = 'http://localhost:5000/api/generate-ulpin';
-const API_PIN_LOOKUP = 'http://localhost:5000/api/lookup-ulpin';
+const API_URL = '/api/generate-ulpin';
+const API_LOOKUP_URL = '/api/lookup-ulpin';
+const API_BUILDING_URL = '/api/building-floors';
 
 const STATE_DISTRICT_COORDS: Record<
   string,
@@ -113,22 +146,39 @@ function buildMockResponse(req: ULPINRequest): ULPINResponse {
 }
 
 export async function generateULPIN(req: ULPINRequest): Promise<ULPINResponse> {
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3000);
+  const coords = getCoordinates(req.stateCode, req.districtCode, req.floorLevel);
+  const flatNumber = parseInt(req.flatUnit.replace(/\D/g, ''), 10) || 401;
 
-    const response = await axios.post(API_URL, req, {
-      signal: controller.signal,
+  const payload = {
+    latitude: coords.latitude,
+    longitude: coords.longitude,
+    state_code: req.stateCode,
+    district_code: req.districtCode,
+    floor_number: req.floorLevel,
+    flat_number: flatNumber,
+  };
+
+  try {
+    const response = await axios.post(API_URL, payload, {
+      timeout: 3000,
       headers: { 'Content-Type': 'application/json' },
     });
 
-    clearTimeout(timeoutId);
-
-    if (response.data && response.data.ulpin) {
+    if (response.data && response.data.success && response.data.ulpin) {
+      const meta = response.data.metadata;
       return {
         ulpin: response.data.ulpin,
         source: 'api',
-        metadata: response.data.metadata || buildMockMetadata(req),
+        metadata: {
+          latitude: meta.latitude,
+          longitude: meta.longitude,
+          altitude: meta.elevation_meters ?? req.floorLevel * 3.2,
+          totalArea: meta.total_area_sqft ?? 850 + req.floorLevel * 25,
+          ownerName: meta.owner_name ?? '—',
+          propertyTaxStatus: (meta.property_tax_status ?? 'PAID') as 'PAID' | 'DUE',
+          encumbranceStatus: (meta.encumbrance_status ?? 'CLEAR') as 'CLEAR' | 'ENCUMBERED',
+          registrationDate: meta.registration_date ?? new Date().toISOString().split('T')[0],
+        },
       };
     }
     return buildMockResponse(req);
@@ -142,12 +192,22 @@ export async function lookupULPIN(ulpin: string): Promise<ULPINResponse | null> 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3000);
 
-    const response = await axios.get(`${API_PIN_LOOKUP}/${ulpin}`, {
+    const response = await axios.get(`${API_LOOKUP_URL}/${ulpin}`, {
       signal: controller.signal,
     });
 
     clearTimeout(timeoutId);
-    if (response.data) return response.data as ULPINResponse;
+    if (response.data && response.data.success) return response.data as ULPINResponse;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchBuildingData(): Promise<BuildingData | null> {
+  try {
+    const response = await axios.get(API_BUILDING_URL, { timeout: 3000 });
+    if (response.data) return response.data as BuildingData;
     return null;
   } catch {
     return null;

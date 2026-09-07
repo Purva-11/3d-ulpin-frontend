@@ -1,5 +1,5 @@
-import { useRef, useMemo } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
+import { useRef, useMemo, useEffect } from 'react';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Text, Float, Html, Grid, Environment, ContactShadows } from '@react-three/drei';
 import * as THREE from 'three';
 
@@ -229,11 +229,37 @@ interface Building3DProps {
   hoveredFloor: number | null;
   onSelectFloor: (index: number) => void;
   onHoverFloor: (index: number | null) => void;
+  focusTrigger: number;
 }
 
-function BuildingScene({ selectedFloor, hoveredFloor, onSelectFloor, onHoverFloor }: Building3DProps) {
+function BuildingScene({ selectedFloor, hoveredFloor, onSelectFloor, onHoverFloor, focusTrigger }: Building3DProps) {
+  const { camera } = useThree();
+  const controlsRef = useRef<any>(null);
+  const targetPosRef = useRef(new THREE.Vector3(7, 3, 8));
+  const targetLookRef = useRef(new THREE.Vector3(0, 0, 0));
+  const animatingRef = useRef(false);
   const floors = useMemo(() => Array.from({ length: TOTAL_FLOORS }, (_, i) => i), []);
   const offsetY = -TOTAL_FLOORS * FLOOR_HEIGHT * 0.5 + FLOOR_HEIGHT;
+
+  useEffect(() => {
+    if (focusTrigger === 0) return;
+    const floorY = (selectedFloor - 2) * FLOOR_HEIGHT;
+    targetPosRef.current.set(5, floorY + 2, 6);
+    targetLookRef.current.set(0, floorY, 0);
+    animatingRef.current = true;
+  }, [focusTrigger, selectedFloor]);
+
+  useFrame(() => {
+    if (!animatingRef.current) return;
+    camera.position.lerp(targetPosRef.current, 0.06);
+    if (controlsRef.current) {
+      controlsRef.current.target.lerp(targetLookRef.current, 0.06);
+      controlsRef.current.update();
+    }
+    if (camera.position.distanceTo(targetPosRef.current) < 0.05) {
+      animatingRef.current = false;
+    }
+  });
 
   return (
     <>
@@ -292,6 +318,7 @@ function BuildingScene({ selectedFloor, hoveredFloor, onSelectFloor, onHoverFloo
       <Environment preset="night" />
 
       <OrbitControls
+        ref={controlsRef}
         enablePan
         enableZoom
         enableRotate
