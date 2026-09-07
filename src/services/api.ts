@@ -6,6 +6,42 @@ export interface ULPINRequest {
   surveyPlotNo: string;
   floorLevel: number;
   flatUnit: string;
+  ownerName?: string;
+  latitude?: number;
+  longitude?: number;
+  totalFloors?: number;
+  floorHeightM?: number;
+  taxStatus?: 'PAID' | 'PENDING';
+}
+
+export interface ULPINResponse {
+  ulpin: string;
+  source: 'api' | 'mock';
+  metadata: {
+    latitude: number;
+    longitude: number;
+    altitude: number;
+    totalArea: number;
+    ownerName: string;
+    propertyTaxStatus: 'PAID' | 'DUE' | 'PENDING';
+    encumbranceStatus: 'CLEAR' | 'ENCUMBERED';
+    registrationDate: string;
+    surveyPlot?: string;
+  };
+}
+
+export interface OSMBuilding {
+  id: number;
+  levels: number | null;
+  height: number | null;
+  tags: Record<string, string>;
+  geometry: Array<{ lat: number; lon: number }>;
+}
+
+export interface OSMBuildingResponse {
+  success: boolean;
+  count: number;
+  buildings: OSMBuilding[];
 }
 
 export interface BuildingFlat {
@@ -40,24 +76,10 @@ export interface BuildingData {
   floors: BuildingFloor[];
 }
 
-export interface ULPINResponse {
-  ulpin: string;
-  source: 'api' | 'mock';
-  metadata: {
-    latitude: number;
-    longitude: number;
-    altitude: number;
-    totalArea: number;
-    ownerName: string;
-    propertyTaxStatus: 'PAID' | 'DUE';
-    encumbranceStatus: 'CLEAR' | 'ENCUMBERED';
-    registrationDate: string;
-  };
-}
-
 const API_URL = '/api/generate-ulpin';
 const API_LOOKUP_URL = '/api/lookup-ulpin';
 const API_BUILDING_URL = '/api/building-floors';
+const API_OSM_URL = '/api/osm-buildings';
 
 const STATE_DISTRICT_COORDS: Record<
   string,
@@ -82,17 +104,6 @@ const STATE_DISTRICT_COORDS: Record<
   },
 };
 
-function generateMockULPIN(req: ULPINRequest): string {
-  const statePart = req.stateCode.toUpperCase();
-  const districtNum = String(Math.abs(hashCode(req.districtCode)) % 99).padStart(2, '0');
-  const hexPart = (Math.random().toString(16).substring(2, 6).toUpperCase());
-  const floorPart = `Z${String(req.floorLevel).padStart(2, '0')}`;
-  const unitNum = req.flatUnit.replace(/\D/g, '');
-  const unitPart = `U${unitNum.padStart(2, '0')}`;
-
-  return `${statePart}${districtNum}-${hexPart}-${floorPart}-${unitPart}`;
-}
-
 function hashCode(str: string): number {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
@@ -112,28 +123,43 @@ function getCoordinates(stateCode: string, districtCode: string, floorLevel: num
   };
 }
 
+function generateMockULPIN(req: ULPINRequest): string {
+  const statePart = req.stateCode.toUpperCase();
+  const districtNum = String(Math.abs(hashCode(req.districtCode)) % 99 + 1).padStart(2, '0');
+  const lat = req.latitude ?? 21.1458;
+  const lng = req.longitude ?? 79.0882;
+  const hexPart = Math.abs(hashCode(`${lat.toFixed(6)},${lng.toFixed(6)}`))
+    .toString(16)
+    .substring(0, 6)
+    .toUpperCase()
+    .padStart(6, '0');
+  const floorPart = `Z${String(req.floorLevel).padStart(2, '0')}`;
+  const unitNum = req.flatUnit.replace(/\D/g, '');
+  const unitPart = `U${unitNum.padStart(3, '0')}`;
+
+  return `${statePart}${districtNum}-${hexPart}-${floorPart}-${unitPart}`;
+}
+
 function buildMockMetadata(req: ULPINRequest) {
   const coords = getCoordinates(req.stateCode, req.districtCode, req.floorLevel);
   const baseArea = 850 + (req.floorLevel * 25);
   const ownerNames = [
-    'Rajesh Kumar Sharma',
-    'Priya Anand Deshmukh',
-    'Arun Venkatraman Iyer',
-    'Sunita Mahesh Patil',
-    'Vikram Singh Rathore',
-    'Anjali Krishnamurthy',
+    'Rajesh Kumar Sharma', 'Priya Anand Deshmukh', 'Arun Venkatraman Iyer',
+    'Sunita Mahesh Patil', 'Vikram Singh Rathore', 'Anjali Krishnamurthy',
   ];
-  const ownerName = ownerNames[Math.abs(hashCode(req.surveyPlotNo + req.flatUnit)) % ownerNames.length];
+  const ownerName = req.ownerName || ownerNames[Math.abs(hashCode(req.surveyPlotNo + req.flatUnit)) % ownerNames.length];
+  const floorHeight = req.floorHeightM ?? 3.2;
 
   return {
-    latitude: coords.latitude,
-    longitude: coords.longitude,
-    altitude: parseFloat(coords.altitude.toFixed(2)),
+    latitude: req.latitude ?? coords.latitude,
+    longitude: req.longitude ?? coords.longitude,
+    altitude: parseFloat((req.floorLevel * floorHeight).toFixed(2)),
     totalArea: baseArea + (Math.abs(hashCode(req.flatUnit)) % 80),
     ownerName,
-    propertyTaxStatus: 'PAID' as const,
+    propertyTaxStatus: (req.taxStatus || 'PAID') as 'PAID' | 'DUE' | 'PENDING',
     encumbranceStatus: 'CLEAR' as const,
     registrationDate: new Date().toISOString().split('T')[0],
+    surveyPlot: req.surveyPlotNo,
   };
 }
 
@@ -148,19 +174,25 @@ function buildMockResponse(req: ULPINRequest): ULPINResponse {
 export async function generateULPIN(req: ULPINRequest): Promise<ULPINResponse> {
   const coords = getCoordinates(req.stateCode, req.districtCode, req.floorLevel);
   const flatNumber = parseInt(req.flatUnit.replace(/\D/g, ''), 10) || 401;
+  const latitude = req.latitude ?? coords.latitude;
+  const longitude = req.longitude ?? coords.longitude;
 
   const payload = {
-    latitude: coords.latitude,
-    longitude: coords.longitude,
+    latitude,
+    longitude,
     state_code: req.stateCode,
     district_code: req.districtCode,
     floor_number: req.floorLevel,
     flat_number: flatNumber,
+    floor_height_m: req.floorHeightM ?? 3.2,
+    owner_name: req.ownerName,
+    survey_plot: req.surveyPlotNo,
+    property_tax_status: req.taxStatus || 'PAID',
   };
 
   try {
     const response = await axios.post(API_URL, payload, {
-      timeout: 3000,
+      timeout: 5000,
       headers: { 'Content-Type': 'application/json' },
     });
 
@@ -175,9 +207,10 @@ export async function generateULPIN(req: ULPINRequest): Promise<ULPINResponse> {
           altitude: meta.elevation_meters ?? req.floorLevel * 3.2,
           totalArea: meta.total_area_sqft ?? 850 + req.floorLevel * 25,
           ownerName: meta.owner_name ?? '—',
-          propertyTaxStatus: (meta.property_tax_status ?? 'PAID') as 'PAID' | 'DUE',
+          propertyTaxStatus: (meta.property_tax_status ?? 'PAID') as 'PAID' | 'DUE' | 'PENDING',
           encumbranceStatus: (meta.encumbrance_status ?? 'CLEAR') as 'CLEAR' | 'ENCUMBERED',
           registrationDate: meta.registration_date ?? new Date().toISOString().split('T')[0],
+          surveyPlot: meta.survey_plot ?? req.surveyPlotNo,
         },
       };
     }
@@ -189,14 +222,7 @@ export async function generateULPIN(req: ULPINRequest): Promise<ULPINResponse> {
 
 export async function lookupULPIN(ulpin: string): Promise<ULPINResponse | null> {
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3000);
-
-    const response = await axios.get(`${API_LOOKUP_URL}/${ulpin}`, {
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
+    const response = await axios.get(`${API_LOOKUP_URL}/${ulpin}`, { timeout: 3000 });
     if (response.data && response.data.success) return response.data as ULPINResponse;
     return null;
   } catch {
@@ -214,4 +240,14 @@ export async function fetchBuildingData(): Promise<BuildingData | null> {
   }
 }
 
-
+export async function fetchOSMBuildings(lat: number, lng: number): Promise<OSMBuildingResponse> {
+  try {
+    const response = await axios.get(API_OSM_URL, {
+      params: { lat, lng },
+      timeout: 10000,
+    });
+    return response.data as OSMBuildingResponse;
+  } catch {
+    return { success: false, count: 0, buildings: [] };
+  }
+}

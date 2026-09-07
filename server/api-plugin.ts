@@ -33,8 +33,19 @@ const STATE_DISTRICT_COORDS: Record<string, Record<string, { lat: number; lng: n
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+    },
   });
+}
+
+async function readBody(req: any): Promise<any> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) {
+    chunks.push(chunk as Buffer);
+  }
+  return JSON.parse(Buffer.concat(chunks).toString());
 }
 
 export function apiPlugin(): Plugin {
@@ -45,25 +56,23 @@ export function apiPlugin(): Plugin {
         const url = req.url || '';
         const method = req.method || 'GET';
 
+        // POST /api/generate-ulpin
         if (url === '/api/generate-ulpin' && method === 'POST') {
           try {
-            const chunks: Buffer[] = [];
-            for await (const chunk of req) {
-              chunks.push(chunk as Buffer);
-            }
-            const body = JSON.parse(Buffer.concat(chunks).toString());
+            const body = await readBody(req);
 
             const stateCode = (body.state_code || 'MH').toUpperCase();
             const districtCode = (body.district_code || 'NGP').toUpperCase();
-
-            const coords =
-              (STATE_DISTRICT_COORDS[stateCode]?.[districtCode]) ||
-              STATE_DISTRICT_COORDS.MH.NGP;
+            const coords = STATE_DISTRICT_COORDS[stateCode]?.[districtCode] || STATE_DISTRICT_COORDS.MH.NGP;
 
             const latitude = body.latitude ?? coords.lat;
             const longitude = body.longitude ?? coords.lng;
-            const floor_number = Math.max(1, Math.min(5, Number(body.floor_number) || 1));
+            const floor_number = Math.max(1, Math.min(20, Number(body.floor_number) || 1));
             const flat_number = Number(body.flat_number) || 401;
+            const floor_height_m = Number(body.floor_height_m) || 3.2;
+            const owner_name = body.owner_name || '—';
+            const survey_plot = body.survey_plot || '';
+            const tax_status = body.property_tax_status || 'PAID';
 
             const input: ULPINInput = {
               latitude,
@@ -72,40 +81,36 @@ export function apiPlugin(): Plugin {
               district_code: districtCode,
               floor_number,
               flat_number,
+              floor_height_m,
             };
 
             const result = generateULPIN(input);
 
-            const ownerNames = [
-              'Rajesh Kumar Sharma', 'Priya Anand Deshmukh', 'Arun Venkatraman Iyer',
-              'Sunita Mahesh Patil', 'Vikram Singh Rathore', 'Anjali Krishnamurthy',
-            ];
-            const ownerIdx = Math.abs(floor_number * 7 + flat_number) % ownerNames.length;
-
             const responseData = {
               success: true,
               ulpin: result.ulpin,
-              geohash: result.geohash,
+              spatial_hash: result.spatial_hash,
               metadata: {
                 latitude,
                 longitude,
                 elevation_meters: result.elevation_meters,
                 floor_number: result.floor_number,
                 unit_number: result.unit_number,
+                floor_height_m,
                 timestamp: result.timestamp,
                 total_area_sqft: 850 + floor_number * 25 + (flat_number % 2) * 35,
-                owner_name: ownerNames[ownerIdx],
-                property_tax_status: 'PAID',
+                owner_name,
+                survey_plot,
+                property_tax_status: tax_status,
                 encumbrance_status: 'CLEAR',
                 registration_date: new Date().toISOString().split('T')[0],
               },
             };
 
             const response = json(responseData);
-            const text = await response.text();
             res.statusCode = 200;
             res.setHeader('Content-Type', 'application/json');
-            res.end(text);
+            res.end(await response.text());
           } catch (err) {
             res.statusCode = 500;
             res.setHeader('Content-Type', 'application/json');
@@ -114,16 +119,85 @@ export function apiPlugin(): Plugin {
           return;
         }
 
+        // GET /api/building-floors
         if (url === '/api/building-floors' && method === 'GET') {
           const data = getBuildingData();
           const response = json(data);
-          const text = await response.text();
           res.statusCode = 200;
           res.setHeader('Content-Type', 'application/json');
-          res.end(text);
+          res.end(await response.text());
           return;
         }
 
+        // GET /api/osm-buildings?lat=...&lng=...
+        if (url.startsWith('/api/osm-buildings') && method === 'GET') {
+          try {
+            const parsed = new URL(url, 'http://localhost');
+            const lat = parseFloat(parsed.searchParams.get('lat') || '21.1458');
+            const lng = parseFloat(parsed.searchParams.get('lng') || '79.0882');
+            const delta = 0.0015;
+
+            const latMin = lat - delta;
+            const latMax = lat + delta;
+            const lngMin = lng - delta;
+            const lngMax = lng + delta;
+
+            const overpassQuery = `[out:json];(way["building"](${latMin},${lngMin},${latMax},${lngMax}););out geom;`;
+            const overpassUrl = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(overpassQuery)}`;
+
+            const osmResponse = await fetch(overpassUrl, { headers: { 'User-Agent': 'Bhoomi3D/1.0' } });
+
+            if (!osmResponse.ok) {
+              res.statusCode = 502;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ success: false, error: 'Overpass API error', status: osmResponse.status }));
+              return;
+            }
+
+            const osmData = await osmResponse.json();
+            const buildings: Array<{
+              id: number;
+              levels: number | null;
+              height: number | null;
+              tags: Record<string, string>;
+              geometry: Array<{ lat: number; lon: number }>;
+            }> = [];
+
+            if (osmData.elements) {
+              for (const el of osmData.elements) {
+                if (el.type === 'way' && el.geometry && el.geometry.length >= 3) {
+                  const tags = el.tags || {};
+                  buildings.push({
+                    id: el.id,
+                    levels: tags['building:levels'] ? parseInt(tags['building:levels'], 10) : null,
+                    height: tags['height'] ? parseFloat(tags['height']) : null,
+                    tags,
+                    geometry: el.geometry.map((g: { lat: number; lon: number }) => ({ lat: g.lat, lon: g.lon })),
+                  });
+                }
+              }
+            }
+
+            const responseData = {
+              success: true,
+              query: { lat, lng, latMin, latMax, lngMin, lngMax },
+              count: buildings.length,
+              buildings,
+            };
+
+            const response = json(responseData);
+            res.statusCode = 200;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(await response.text());
+          } catch (err) {
+            res.statusCode = 500;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ success: false, error: 'Failed to fetch OSM data', detail: String(err) }));
+          }
+          return;
+        }
+
+        // GET /api/lookup-ulpin/:code
         if (url.startsWith('/api/lookup-ulpin/') && method === 'GET') {
           const ulpin = url.replace('/api/lookup-ulpin/', '');
           const building = getBuildingData();
@@ -148,16 +222,13 @@ export function apiPlugin(): Plugin {
               },
             };
             const response = json(responseData);
-            const text = await response.text();
             res.statusCode = 200;
             res.setHeader('Content-Type', 'application/json');
-            res.end(text);
+            res.end(await response.text());
           } else {
-            const response = json({ success: false, error: 'ULPIN not found' }, 404);
-            const text = await response.text();
             res.statusCode = 404;
             res.setHeader('Content-Type', 'application/json');
-            res.end(text);
+            res.end(JSON.stringify({ success: false, error: 'ULPIN not found' }));
           }
           return;
         }
