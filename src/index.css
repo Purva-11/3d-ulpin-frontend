@@ -1,0 +1,107 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(16, 185, 129, 0.3) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: rgba(16, 185, 129, 0.3);
+  border-radius: 3px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(16, 185, 129, 0.5);
+}
+
+body {
+  margin: 0;
+  background: #0F172A;
+  color: #E2E8F0;
+  font-family: 'Inter', system-ui, sans-serif;
+  overflow-x: hidden;
+}
+
+.glass {
+  background: rgba(30, 41, 59, 0.55);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(59, 130, 246, 0.12);
+}
+
+.glass-strong {
+  background: rgba(15, 23, 42, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(59, 130, 246, 0.15);
+}
+
+.glow-emerald {
+  box-shadow: 0 0 25px rgba(16, 185, 129, 0.25), inset 0 0 20px rgba(16, 185, 129, 0.05);
+}
+
+.glow-cyber {
+  box-shadow: 0 0 25px rgba(59, 130, 246, 0.2), inset 0 0 20px rgba(59, 130, 246, 0.05);
+}
+
+.text-glow {
+  text-shadow: 0 0 12px rgba(16, 185, 129, 0.5);
+}
+
+.grid-bg {
+  background-image:
+    linear-gradient(rgba(59, 130, 246, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(59, 130, 246, 0.04) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  background: linear-gradient(90deg, #10B981 0%, #3B82F6 100%);
+  border-radius: 3px;
+  outline: none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  background: #10B981;
+  border: 2px solid #0F172A;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.6);
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  background: #10B981;
+  border: 2px solid #0F172A;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.6);
+}
+
+select option {
+  background: #1E293B;
+  color: #E2E8F0;
+}
