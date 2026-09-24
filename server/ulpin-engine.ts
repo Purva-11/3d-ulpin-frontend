@@ -8,12 +8,14 @@ export interface ULPINInput {
   floor_number: number;
   flat_number: number;
   floor_height_m?: number;
+  base_altitude_m?: number;
 }
 
 export interface ULPINResult {
   ulpin: string;
   spatial_hash: string;
   elevation_meters: number;
+  altitude_msl: number;
   floor_number: number;
   unit_number: number;
   timestamp: string;
@@ -42,12 +44,15 @@ export function generateULPIN(input: ULPINInput): ULPINResult {
 
   const ulpin = `${statePart}${districtPart}-${spatialHash}-${floorTag}-${unitTag}`;
   const floorHeight = input.floor_height_m ?? 3.2;
+  const baseAlt = input.base_altitude_m ?? 310;
   const elevation_meters = parseFloat((input.floor_number * floorHeight).toFixed(2));
+  const altitude_msl = parseFloat((baseAlt + elevation_meters).toFixed(2));
 
   return {
     ulpin,
     spatial_hash: spatialHash,
     elevation_meters,
+    altitude_msl,
     floor_number: input.floor_number,
     unit_number: input.flat_number,
     timestamp: new Date().toISOString(),

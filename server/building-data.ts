@@ -4,8 +4,9 @@ export interface FlatData {
   area_sqft: number;
   owner: string;
   tax_status: 'PAID' | 'PENDING';
-  encumbrance: 'CLEAR' | 'ENCUMBERED';
+  encumbrance: 'CLEAR' | 'MORTGAGED';
   registered: boolean;
+  bounding_coords: { x: number; z: number; w: number; d: number };
 }
 
 export interface FloorData {
@@ -31,49 +32,45 @@ export interface BuildingData {
 }
 
 const OWNERS = [
-  'Rajesh Kumar Sharma',
-  'Priya Anand Deshmukh',
-  'Arun Venkatraman Iyer',
-  'Sunita Mahesh Patil',
-  'Vikram Singh Rathore',
-  'Anjali Krishnamurthy',
-  'Deepak Nair',
-  'Meera Kulkarni',
-  'Sanjay Gupta',
-  'Lakshmi Venkatesan',
+  'Rajesh Kumar Sharma', 'Priya Anand Deshmukh', 'Arun Venkatraman Iyer',
+  'Sunita Mahesh Patil', 'Vikram Singh Rathore', 'Anjali Krishnamurthy',
+  'Deepak Nair', 'Meera Kulkarni', 'Sanjay Gupta', 'Lakshmi Venkatesan',
 ];
 
-const TAX_STATUSES: Array<'PAID' | 'PENDING'> = ['PAID', 'PAID', 'PAID', 'PAID', 'PENDING', 'PAID', 'PAID', 'PAID', 'PAID', 'PAID'];
+const ENCUMBRANCES: Array<'CLEAR' | 'MORTGAGED'> = ['CLEAR', 'CLEAR', 'CLEAR', 'MORTGAGED', 'CLEAR', 'CLEAR', 'CLEAR', 'CLEAR', 'CLEAR', 'CLEAR'];
 
-export function getBuildingData(): BuildingData {
-  const floors: FloorData[] = [];
+export function getBuildingData(buildingId?: string, totalFloors?: number, floorHeightM?: number): BuildingData {
+  const floors = totalFloors || 5;
+  const fh = floorHeightM || 3.2;
+  const floorArr: FloorData[] = [];
 
-  for (let f = 1; f <= 5; f++) {
+  for (let f = 1; f <= floors; f++) {
     const flats: FlatData[] = [];
     for (let flat = 0; flat < 2; flat++) {
       const flatNum = 400 + f * 2 + flat;
-      const idx = (f - 1) * 2 + flat;
+      const idx = ((f - 1) * 2 + flat) % 10;
       flats.push({
         unit: `Flat ${flatNum}`,
         flat_number: flatNum,
         area_sqft: 850 + f * 25 + flat * 35,
         owner: OWNERS[idx],
-        tax_status: TAX_STATUSES[idx],
-        encumbrance: 'CLEAR',
+        tax_status: idx === 4 ? 'PENDING' : 'PAID',
+        encumbrance: ENCUMBRANCES[idx],
         registered: true,
+        bounding_coords: { x: flat === 0 ? -1.04 : 1.04, z: 0, w: 1.96, d: 3 },
       });
     }
-    floors.push({
+    floorArr.push({
       floor_number: f,
-      elevation_meters: parseFloat((f * 3.2).toFixed(2)),
+      elevation_meters: parseFloat((f * fh).toFixed(2)),
       flats,
     });
   }
 
   return {
-    building_id: 'BLD-NGP-402A-001',
+    building_id: buildingId || 'BLD-NGP-402A-001',
     building_name: 'Godavari Heights — Plot 402/A',
-    total_floors: 5,
+    total_floors: floors,
     flats_per_floor: 2,
     spatial_bounds: {
       min_lat: 21.1458,
@@ -81,8 +78,8 @@ export function getBuildingData(): BuildingData {
       min_lng: 79.0880,
       max_lng: 79.0884,
       base_altitude_m: 310,
-      floor_height_m: 3.2,
+      floor_height_m: fh,
     },
-    floors,
+    floors: floorArr,
   };
 }
